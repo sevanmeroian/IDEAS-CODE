@@ -26,7 +26,6 @@ def load_and_prepare_data():
     return combined_df
 
 # Train model and save it
-@st.cache_resource
 def train_model():
     combined_df = load_and_prepare_data()
     X = combined_df['text']
