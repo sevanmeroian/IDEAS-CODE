@@ -1,4 +1,3 @@
-# Import required libraries
 import streamlit as st
 import pandas as pd
 import os
@@ -9,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
 
 # Dataset paths
-folder_path = r'C:\Users\flipp\OneDrive\Desktop\IDEAS Final'
+folder_path = r'C:\Users\flipp\source\repos\Final Project\Final Project'
 true_file = os.path.join(folder_path, 'True.csv')
 fake_file = os.path.join(folder_path, 'Fake.csv')
 
@@ -26,7 +25,7 @@ def load_and_prepare_data():
     combined_df = combined_df.dropna(subset=['text'])
     return combined_df
 
-# Train model and vectorizer
+# Train model and save it
 @st.cache_resource
 def train_model():
     combined_df = load_and_prepare_data()
@@ -45,9 +44,9 @@ def train_model():
     model = LogisticRegression(max_iter=1000)
     model.fit(X_train_tfidf, y_train)
 
-    # Save model and vectorizer
+    # Save model, vectorizer, and test data
     with open('news_model.pkl', 'wb') as f:
-        pickle.dump((model, vectorizer), f)
+        pickle.dump((model, vectorizer, X_test_tfidf, y_test), f)
 
     return model, vectorizer, X_test_tfidf, y_test
 
@@ -55,7 +54,7 @@ def train_model():
 def load_model():
     try:
         with open('news_model.pkl', 'rb') as f:
-            return pickle.load(f)
+            return pickle.load(f)  # Returns model, vectorizer, X_test_tfidf, y_test
     except FileNotFoundError:
         return train_model()
 
@@ -66,7 +65,7 @@ st.subheader("Enter a news article to analyze its credibility")
 # Input section
 user_input = st.text_area("Paste your news article here:")
 
-# Load model and vectorizer
+# Load model, vectorizer, and test data
 model, vectorizer, X_test_tfidf, y_test = load_model()
 
 if st.button("Analyze News"):
