@@ -1,196 +1,94 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+# Import required libraries
+import streamlit as st
 import pandas as pd
-import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.ensemble import RandomForestClassifier
+import os
 import pickle
-import re
-import nltk
-from nltk.sentiment import SentimentIntensityAnalyzer
-import logging
-from pathlib import Path
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Dataset paths
+folder_path = r'C:\Users\flipp\OneDrive\Desktop\IDEAS Final'
+true_file = os.path.join(folder_path, 'True.csv')
+fake_file = os.path.join(folder_path, 'Fake.csv')
 
-app = Flask(__name__)
-CORS(app)
+# Load and preprocess dataset
+@st.cache_data
+def load_and_prepare_data():
+    true_df = pd.read_csv(true_file)
+    fake_df = pd.read_csv(fake_file)
 
-class NewsAnalyzer:
-    def __init__(self):
-        self.model = None
-        self.vectorizer = None
-        self.sia = SentimentIntensityAnalyzer()
-        self.subjects = ['Politics', 'Technology', 'Science', 'Entertainment']
+    true_df['label'] = 1  # 1 for True News
+    fake_df['label'] = 0  # 0 for Fake News
+    combined_df = pd.concat([true_df, fake_df], ignore_index=True)
+    combined_df = combined_df.sample(frac=1, random_state=42).reset_index(drop=True)
+    combined_df = combined_df.dropna(subset=['text'])
+    return combined_df
 
-        # Ensure NLTK data is downloaded
-        try:
-            nltk.data.find('sentiment/vader_lexicon.zip')
-        except LookupError:
-            nltk.download('vader_lexicon')
+# Train model and vectorizer
+@st.cache_resource
+def train_model():
+    combined_df = load_and_prepare_data()
+    X = combined_df['text']
+    y = combined_df['label']
 
-    def preprocess_text(self, text):
-        """Clean and preprocess input text."""
-        # Remove special characters and digits
-        text = re.sub(r'[^a-zA-Z\s]', '', text)
-        # Convert to lowercase and strip
-        text = text.lower().strip()
-        return text
+    # Split data
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    def load_and_prepare_data(self):
-        """Load and prepare training data."""
-        try:
-            data_dir = Path('data')
-            fake_df = pd.read_csv(data_dir / 'Fake.csv')
-            true_df = pd.read_csv(data_dir / 'True.csv')
+    # TF-IDF vectorization
+    vectorizer = TfidfVectorizer(stop_words='english', max_df=0.7)
+    X_train_tfidf = vectorizer.fit_transform(X_train)
+    X_test_tfidf = vectorizer.transform(X_test)
 
-            # Add labels
-            fake_df['label'] = 0
-            true_df['label'] = 1
+    # Train model
+    model = LogisticRegression(max_iter=1000)
+    model.fit(X_train_tfidf, y_train)
 
-            # Combine datasets
-            df = pd.concat([fake_df, true_df], ignore_index=True)
-            df['clean_text'] = df['text'].apply(self.preprocess_text)
+    # Save model and vectorizer
+    with open('news_model.pkl', 'wb') as f:
+        pickle.dump((model, vectorizer), f)
 
-            return df
-        except Exception as e:
-            logger.error(f"Error loading data: {str(e)}")
-            raise
+    return model, vectorizer, X_test_tfidf, y_test
 
-    def train_model(self):
-        """Train the machine learning model."""
-        try:
-            logger.info("Starting model training...")
-            df = self.load_and_prepare_data()
-
-            # Create TF-IDF features
-            self.vectorizer = TfidfVectorizer(
-                max_features=5000,
-                stop_words='english'
-            )
-            X = self.vectorizer.fit_transform(df['clean_text'])
-            y = df['label']
-
-            # Train Random Forest model
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                random_state=42,
-                n_jobs=-1
-            )
-            self.model.fit(X, y)
-
-            # Save model
-            self.save_model()
-            logger.info("Model training completed successfully")
-        except Exception as e:
-            logger.error(f"Error training model: {str(e)}")
-            raise
-
-    def save_model(self):
-        """Save trained model and vectorizer."""
-        try:
-            model_dir = Path('models')
-            model_dir.mkdir(exist_ok=True)
-
-            with open(model_dir / 'news_analyzer_model.pkl', 'wb') as f:
-                pickle.dump((self.model, self.vectorizer), f)
-        except Exception as e:
-            logger.error(f"Error saving model: {str(e)}")
-            raise
-
-    def load_model(self):
-        """Load trained model and vectorizer."""
-        try:
-            model_path = Path('models/news_analyzer_model.pkl')
-            if model_path.exists():
-                with open(model_path, 'rb') as f:
-                    self.model, self.vectorizer = pickle.load(f)
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error loading model: {str(e)}")
-            return False
-
-    def analyze_text(self, text):
-        """Analyze input text and return credibility assessment."""
-        try:
-            if not self.model or not self.vectorizer:
-                if not self.load_model():
-                    self.train_model()
-
-            # Preprocess input text
-            cleaned_text = self.preprocess_text(text)
-
-            # Get credibility prediction
-            X = self.vectorizer.transform([cleaned_text])
-            prediction = self.model.predict_proba(X)[0]
-            credibility_score = prediction[1]  # Probability of being true
-
-            # Get sentiment scores
-            sentiment = self.sia.polarity_scores(text)
-            sentiment_distribution = [
-                max(sentiment['pos'], 0),
-                max(sentiment['neu'], 0),
-                max(sentiment['neg'], 0)
-            ]
-
-            # Generate subject distribution (simplified)
-            # In a real application, you'd want a proper subject classifier
-            subject_distribution = np.random.dirichlet(np.ones(4))
-
-            return {
-                'credibility_score': float(credibility_score),
-                'sentiment_distribution': sentiment_distribution,
-                'subject_distribution': subject_distribution.tolist(),
-                'success': True
-            }
-        except Exception as e:
-            logger.error(f"Error analyzing text: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
-# Initialize analyzer
-analyzer = NewsAnalyzer()
-
-@app.route('/analyze', methods=['POST'])
-def analyze_news():
-    """API endpoint for news analysis."""
+# Load model if already trained
+def load_model():
     try:
-        data = request.get_json()
-        if not data or 'text' not in data:
-            return jsonify({
-                'success': False,
-                'error': 'No text provided'
-            }), 400
+        with open('news_model.pkl', 'rb') as f:
+            return pickle.load(f)
+    except FileNotFoundError:
+        return train_model()
 
-        text = data['text']
-        if not text.strip():
-            return jsonify({
-                'success': False,
-                'error': 'Empty text provided'
-            }), 400
+# Streamlit app UI
+st.title("News Credibility Analyzer")
+st.subheader("Enter a news article to analyze its credibility")
 
-        result = analyzer.analyze_text(text)
-        if result['success']:
-            return jsonify(result)
+# Input section
+user_input = st.text_area("Paste your news article here:")
+
+# Load model and vectorizer
+model, vectorizer, X_test_tfidf, y_test = load_model()
+
+if st.button("Analyze News"):
+    if user_input.strip():
+        # Predict credibility
+        input_tfidf = vectorizer.transform([user_input])
+        prediction = model.predict_proba(input_tfidf)[0]
+        credibility_score = prediction[1] * 100  # Probability of being true news
+
+        # Display result
+        st.metric(label="Credibility Score", value=f"{credibility_score:.2f}%")
+        if credibility_score > 50:
+            st.success("This news article is likely credible.")
         else:
-            return jsonify(result), 500
+            st.error("This news article is likely not credible.")
+    else:
+        st.warning("Please enter some text to analyze!")
 
-    except Exception as e:
-        logger.error(f"API error: {str(e)}")
-        return jsonify({
-            'success': False,
-            'error': 'Internal server error'
-        }), 500
-
-if __name__ == "__main__":
-    # Ensure model is loaded or trained before starting
-    if not analyzer.load_model():
-        analyzer.train_model()
-
-    # Start server
-    app.run(debug=True, port=5000)
+# Model evaluation section
+if st.checkbox("Show Model Evaluation"):
+    y_pred = model.predict(X_test_tfidf)
+    accuracy = accuracy_score(y_test, y_pred)
+    st.write(f"Model Accuracy: {accuracy:.2f}")
+    st.text("Classification Report:")
+    st.text(classification_report(y_test, y_pred))
