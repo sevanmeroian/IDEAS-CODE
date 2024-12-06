@@ -32,8 +32,8 @@ async function trainOrLoadModel() {
 // Train Model
 async function trainModel() {
     // Load dataset
-    const trueData = loadCSV('./True.csv', 1); // 1 for True News
-    const fakeData = loadCSV('./Fake.csv', 0); // 0 for Fake News
+    const trueData = loadCSV('./True_Reduced(in).csv', 1); // 1 for True News
+    const fakeData = loadCSV('./Fake_Reduced(in).csv', 0); // 0 for Fake News
     const combinedData = [...trueData, ...fakeData].sort(() => Math.random() - 0.5);
 
     // Tokenize and preprocess text
@@ -99,7 +99,7 @@ async function trainModel() {
 function loadCSV(filePath, label) {
     const csv = fs.readFileSync(filePath, 'utf8');
     const lines = csv.split('\n').slice(1); // Skip header
-    return lines.map(line => ({ text: line, label }));
+    return lines.filter(line => line.trim() !== '').map(line => ({ text: line.trim(), label }));
 }
 
 // Predict Credibility
